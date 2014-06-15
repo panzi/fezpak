@@ -399,7 +399,7 @@ if HAS_LLFUSE:
 			attrs.st_uid     = arch_st.st_uid
 			attrs.st_gid     = arch_st.st_gid
 			attrs.st_blksize = arch_st.st_blksize
-			attrs.st_blocks  = 1 + ((attrs.st_size - 1) / attrs.st_blksize) if attrs.st_size != 0 else 0
+			attrs.st_blocks  = 1 + ((attrs.st_size - 1) // attrs.st_blksize) if attrs.st_size != 0 else 0
 			attrs.st_atime   = arch_st.st_atime
 			attrs.st_mtime   = arch_st.st_mtime
 			attrs.st_ctime   = arch_st.st_ctime
