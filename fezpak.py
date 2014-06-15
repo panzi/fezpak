@@ -184,16 +184,12 @@ def human_size(size):
 	
 	return size+unit
 
-SORTINGS = {
-	"offset": lambda index: index,
-	"size": lambda index: sorted(index,key=lambda item: item[2]),
-	"name": lambda index: sorted(index,key=lambda item: item[0])
-}
+def print_list(stream,details=False,human=False,delim="\n",ext="",sort_func=None,out=sys.stdout):
+	index = read_index(stream)
 
-def print_list(stream,details=False,human=False,delim="\n",ext="",sort="offset",reverse=False,out=sys.stdout):
-	index = SORTINGS[sort](read_index(stream))
-	if reverse:
-		index = reversed(index)
+	if sort_func:
+		index = sorted(index,cmp=sort_func)
+
 	if details:
 		if human:
 			size_to_str = human_size
@@ -213,6 +209,45 @@ def add_common_args(parser):
 		help='seperate file names with nil bytes')
 	parser.add_argument('-v','--verbose',action='store_true',default=False,
 		help='print verbose output')
+
+SORT_ALIASES = {
+	"s": "size",
+	"S": "-size",
+	"o": "offset",
+	"O": "-offset",
+	"n": "name",
+	"N": "-name"
+}
+
+CMP_FUNCS = {
+	"size":  lambda lhs, rhs: cmp(lhs[2], rhs[2]),
+	"-size": lambda lhs, rhs: cmp(rhs[2], lhs[2]),
+
+	"offset":  lambda lhs, rhs: cmp(lhs[1], rhs[1]),
+	"-offset": lambda lhs, rhs: cmp(rhs[1], lhs[1]),
+
+	"name":  lambda lhs, rhs: cmp(lhs[0], rhs[0]),
+	"-name": lambda lhs, rhs: cmp(rhs[0], lhs[0])
+}
+
+def sort_func(sort):
+	cmp_funcs = []
+	for key in sort.split(","):
+		key = SORT_ALIASES.get(key,key)
+		try:
+			func = CMP_FUNCS[key]
+		except KeyError:
+			raise ValueError("unknown sort key: "+key)
+		cmp_funcs.append(func)
+
+	def do_cmp(lhs,rhs):
+		for cmp_func in cmp_funcs:
+			i = cmp_func(lhs,rhs)
+			if i != 0:
+				return i
+		return 0
+
+	return do_cmp
 
 def main(argv):
 	import argparse
@@ -276,10 +311,8 @@ def main(argv):
 		help='print human readable file sizes')
 	list_parser.add_argument('-d','--details',action='store_true',default=False,
 		help='print file offsets and sizes')
-	list_parser.add_argument('-s','--sort',choices=['offset','size','name'],default='offset',
+	list_parser.add_argument('-s','--sort',dest='sort_func',type=sort_func,default=None,
 		help='sort file list')
-	list_parser.add_argument('-r','--reverse',action='store_true',default=False,
-		help='reverse sort')
 	list_parser.add_argument('-x','--extension',type=str,default='',metavar="EXT",
 		help='add extension to file names')
 	add_common_args(list_parser)
@@ -295,7 +328,7 @@ def main(argv):
 
 	if args.command == 'list':
 		with open(args.archive,"rb") as stream:
-			print_list(stream,args.details,args.human,delim,args.extension,args.sort,args.reverse)
+			print_list(stream,args.details,args.human,delim,args.extension,args.sort_func)
 	
 	elif args.command == 'unpack':
 		with open(args.archive,"rb") as stream:
