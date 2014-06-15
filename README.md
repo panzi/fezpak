@@ -7,9 +7,13 @@ music outside of the game.
 
 Basic usage:
 
-	fezpak.py list <archive>           - list contens of .pak archive
-	fezpak.py pack <archive> files...  - create a new .pak archive
-	fezpak.py unpack <archive>         - extract .pak archive
+	fezpak.py list <archive>                 - list contens of .pak archive
+	fezpak.py pack <archive> [files...]      - create a new .pak archive
+	fezpak.py unpack <archive>               - extract .pak archive
+	fezpak.py mount <archive> <mount-point>  - mount archive as read-only file system
+
+The `mount` command depends on the [llfuse](https://code.google.com/p/python-llfuse/)
+Python package. If it's not available the rest is still working.
 
 File Format
 -----------

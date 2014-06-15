@@ -1,13 +1,20 @@
 #!/usr/bin/env python
 
-from __future__ import with_statement, division
+from __future__ import with_statement, division, print_function
 
 import os
 import sys
 import struct
 
+try:
+	import llfuse
+except ImportError:
+	HAS_LLFUSE = False
+else:
+	HAS_LLFUSE = True
+
 __all__ = 'read_index', 'pack', 'unpack', 'unpack_files', 'pack_buffers', 'pack_files', \
-          'write_entry_header', 'print_list'
+          'write_entry_header', 'print_list', 'mount'
 
 # for Python < 3.3 and Windows
 def highlevel_sendfile(outfile,infile,offset,size):
@@ -249,6 +256,262 @@ def sort_func(sort):
 
 	return do_cmp
 
+if HAS_LLFUSE:
+	from collections import OrderedDict
+	import errno
+	import weakref
+	import stat
+	import mmap
+
+	class Entry(object):
+		__slots__ = 'inode','_parent','__weakref__'
+
+		def __init__(self,inode,parent=None):
+			self.inode  = inode
+			self.parent = parent
+
+		@property
+		def parent(self):
+			return self._parent() if self._parent is not None else None
+
+		@parent.setter
+		def parent(self,parent):
+			self._parent = weakref.ref(parent) if parent is not None else None
+
+	class Dir(Entry):
+		__slots__ = 'children',
+
+		def __init__(self,inode,children=None,parent=None):
+			Entry.__init__(self,inode,parent)
+			if children is None:
+				self.children = OrderedDict()
+			else:
+				self.children = children
+				for child in children.values():
+					child.parent = self
+
+		def __repr__(self):
+			return 'Dir(%r, %r)' % (self.inode, self.children)
+
+	class File(Entry):
+		__slots__ = 'offset', 'size'
+
+		def __init__(self,inode,offset,size,parent=None):
+			Entry.__init__(self,inode,parent)
+			self.offset = offset
+			self.size   = size
+
+		def __repr__(self):
+			return 'File(%r, %r, %r)' % (self.inode, self.offset, self.size)
+
+	DIR_SELF   = '.'.encode(sys.getfilesystemencoding())
+	DIR_PARENT = '..'.encode(sys.getfilesystemencoding())
+
+	class Operations(llfuse.Operations):
+		__slots__ = 'archive','root','inodes','arch_st','data'
+
+		def __init__(self, archive, ext=""):
+			super(Operations, self).__init__()
+			self.archive = archive
+			self.arch_st = os.fstat(archive.fileno())
+			self.root    = Dir(1)
+			self.inodes  = {self.root.inode: self.root}
+			self.root.parent = self.root
+
+			encoding = sys.getfilesystemencoding()
+			inode = self.root.inode + 1
+			for filename, offset, size in read_index(archive):
+				path = filename.split(os.path.sep)
+				path, name = path[:-1], path[-1]
+				name += ext
+				name = name.encode(encoding)
+
+				parent = self.root
+				for i, comp in enumerate(path):
+					comp = comp.encode(encoding)
+					try:
+						entry = parent.children[comp]
+					except KeyError:
+						entry = parent.children[comp] = self.inodes[inode] = Dir(inode, parent=parent)
+						inode += 1
+						
+					if type(entry) is not Dir:
+						raise ValueError("name conflict in archive: %r is not a directory" % os.path.join(*path[:i+1]))
+
+					parent = entry
+				
+				if name in parent.children:
+					raise ValueError("name conflict in archive: %r already exists" % filename)
+
+				parent.children[name] = self.inodes[inode] = File(inode, offset, size, parent)
+				inode += 1
+
+			archive.seek(0, 0)
+			self.data = mmap.mmap(archive.fileno(), 0, access=mmap.ACCESS_READ)
+
+		def destroy(self):
+			self.data.close()
+			self.archive.close()
+
+		def lookup(self, parent_inode, name):
+			try:
+				if name == DIR_SELF:
+					entry = self.inodes[parent_inode]
+
+				elif name == DIR_PARENT:
+					entry = self.inodes[parent_inode].parent
+
+				else:
+					entry = self.inodes[parent_inode].children[name]
+
+			except KeyError:
+				raise llfuse.FUSEError(errno.ENOENT)
+			else:
+				return self._getattr(entry)
+
+		def _getattr(self, entry):
+			attrs = llfuse.EntryAttributes()
+
+			attrs.st_ino        = entry.inode
+			attrs.st_rdev       = 0
+			attrs.generation    = 0
+			attrs.entry_timeout = 300
+			attrs.attr_timeout  = 300
+
+			if type(entry) is Dir:
+				nlink = 2 if entry is not self.root else 1
+				size  = 5
+
+				for name, child in entry.children.items():
+					size += len(name) + 1
+					if type(child) is Dir:
+						nlink += 1
+
+				attrs.st_mode  = stat.S_IFDIR | 0o555
+				attrs.st_nlink = nlink
+				attrs.st_size  = size
+			else:
+				attrs.st_nlink = 1
+				attrs.st_mode  = stat.S_IFREG | 0o444
+				attrs.st_size  = entry.size
+
+			arch_st = self.arch_st
+			attrs.st_uid     = arch_st.st_uid
+			attrs.st_gid     = arch_st.st_gid
+			attrs.st_blksize = arch_st.st_blksize
+			attrs.st_blocks  = 1 + ((attrs.st_size - 1) / attrs.st_blksize) if attrs.st_size != 0 else 0
+			attrs.st_atime   = arch_st.st_atime
+			attrs.st_mtime   = arch_st.st_mtime
+			attrs.st_ctime   = arch_st.st_ctime
+
+			return attrs
+
+		def getattr(self, inode):
+			try:
+				entry = self.inodes[inode]
+			except KeyError:
+				raise llfuse.FUSEError(errno.ENOENT)
+			else:
+				return self._getattr(entry)
+
+		def access(self, inode, mode, ctx):
+			try:
+				entry = self.inodes[inode]
+			except KeyError:
+				raise llfuse.FUSEError(errno.ENOENT)
+			else:
+				st_mode = 0o555 if type(entry) is Dir else 0o444
+				return (st_mode & mode) == mode
+
+		def opendir(self, inode):
+			try:
+				entry = self.inodes[inode]
+			except KeyError:
+				raise llfuse.FUSEError(errno.ENOENT)
+			else:
+				if type(entry) is not Dir:
+					raise llfuse.FUSEError(errno.ENOTDIR)
+
+				return inode
+
+		def readdir(self, inode, offset):
+			try:
+				entry = self.inodes[inode]
+			except KeyError:
+				raise llfuse.FUSEError(errno.ENOENT)
+			else:
+				if type(entry) is not Dir:
+					raise llfuse.FUSEError(errno.ENOTDIR)
+
+				names = list(entry.children)[offset:] if offset > 0 else entry.children
+				for name in names:
+					child = entry.children[name]
+					yield name, self._getattr(child), child.inode
+
+		def releasedir(self, fh):
+			pass
+
+		def statfs(self):
+			attrs = llfuse.StatvfsData()
+
+			arch_st = self.arch_st
+			attrs.f_bsize  = arch_st.st_blksize
+			attrs.f_frsize = arch_st.st_blksize
+			attrs.f_blocks = arch_st.st_blocks
+			attrs.f_bfree  = 0
+			attrs.f_bavail = 0
+
+			attrs.f_files  = len(self.inodes)
+			attrs.f_ffree  = 0
+			attrs.f_favail = 0
+
+			return attrs
+
+		def open(self, inode, flags):
+			try:
+				entry = self.inodes[inode]
+			except KeyError:
+				raise llfuse.FUSEError(errno.ENOENT)
+			else:
+				if type(entry) is Dir:
+					raise llfuse.FUSEError(errno.EISDIR)
+
+				if flags & 3 != os.O_RDONLY:
+					raise llfuse.FUSEError(errno.EACCES)
+
+				return inode
+
+		def read(self, fh, offset, length):
+			try:
+				entry = self.inodes[fh]
+			except KeyError:
+				raise llfuse.FUSEError(errno.ENOENT)
+
+			if offset > entry.size:
+				return bytes()
+
+			i = entry.offset + offset
+			j = i + min(entry.size - offset, length)
+			return self.data[i:j]
+
+#			self.archive.seek(entry.offset + offset, 0)
+#			return self.archive.read(min(entry.size - offset, length))
+			
+		def release(self, fh):
+			pass
+
+	def mount(archive,mountpt,ext="",debug=False):
+		with open(archive,"rb") as fp:
+			ops = Operations(fp,ext)
+			args = ['fsname=fezpak']
+			if debug:
+				args.append('debug')
+			llfuse.init(ops, mountpt, args)
+			try:
+				llfuse.main(single=False)
+			finally:
+				llfuse.close()
+
 def main(argv):
 	import argparse
 
@@ -286,6 +549,7 @@ def main(argv):
 
 	parser = argparse.ArgumentParser(description='pack, unpack and list FEZ .pak archives')
 	parser.register('action', 'parsers', AliasedSubParsersAction)
+	parser.set_defaults(print0=False,verbose=False)
 
 	subparsers = parser.add_subparsers(metavar='command')
 
@@ -317,6 +581,15 @@ def main(argv):
 		help='add extension to file names')
 	add_common_args(list_parser)
 
+	mount_parser = subparsers.add_parser('mount',aliases=('m',),help='fuse mount archive')
+	mount_parser.set_defaults(command='mount')
+	mount_parser.add_argument('-x','--extension',type=str,default='',metavar="EXT",
+		help='add extension to names of files')
+	mount_parser.add_argument('-d','--debug',action='store_true',default=False,
+		help='print debug output')
+	mount_parser.add_argument('archive', help='FEZ .pak archive')
+	mount_parser.add_argument('mountpt', help='mount point')
+
 	args = parser.parse_args(argv)
 
 	delim = '\0' if args.print0 else '\n'
@@ -340,6 +613,12 @@ def main(argv):
 	elif args.command == 'pack':
 		with open(args.archive,"wb") as stream:
 			pack_files(stream,args.files or ['.'],args.remove_ext,callback)
+
+	elif args.command == 'mount':
+		if not HAS_LLFUSE:
+			raise ValueError('the llfuse python module is needed for this feature')
+
+		mount(args.archive,args.mountpt,args.extension,args.debug)
 
 	else:
 		raise ValueError('unknown command: %s' % args.command)
