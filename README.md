@@ -1,8 +1,8 @@
 fezpak
 ======
 
-Because I am the way I am the first thing what I did after I bought FEZ is not
-to play it, but to reverse engineer the package format so I can listen to the
+Because I am the way I am the first thing what I did after I bought [FEZ](http://fezgame.com/)
+is not to play it, but to reverse engineer the package format so I can listen to the
 music outside of the game.
 
 Basic usage:
