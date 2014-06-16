@@ -27,8 +27,17 @@ File names don't have extensions (like `.ogg`). I don't know if this has a speci
 reason just happens to be the way the FEZ developers named the files.
 
 **Note:** File names may conflict with directory names. If you unpack such an archive
-you need to specify `-x EXT` to add an extension to all extracted files and resolve
-the name confilct.
+you need to specify `-x EXT` or `--guess-extension` to add file name extension to all
+extracted files in order resolve the name confilct.
+
+Sometimes there is the exact same file name twice in the archive. In this case the
+second occurance will overwrite the first when unpacking. When the archive is mounted
+as a file system name conflict resolution is a bit different. In this case `~number`
+is added between the file name and the extension. `number` is the first number that
+doesn't produce a confict.
+
+I noticed that all doubled file names in the archives of FEZ contain the exact same
+content, so I guess their existance is a mistake.
 
 
 	┌──────────────────────────────┐
