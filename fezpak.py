@@ -16,6 +16,83 @@ else:
 __all__ = 'read_index', 'pack', 'unpack', 'unpack_files', 'pack_buffers', 'pack_files', \
           'write_entry_header', 'print_list', 'mount'
 
+if sys.version_info.major == 2:
+	from itertools import izip
+	def zip_bytes(*seqs):
+		return izip(*tuple((ord(x) for x in seq) for seq in seqs))
+else:
+	zip_bytes = zip
+
+def matcher(magic,offset=0,mask=None):
+	if offset == 0:
+		if mask is None:
+			def _matcher(data):
+				return data.startswith(magic)
+		else:
+			def _matcher(data):
+				for x, y, z in zip_bytes(data,mask,magic):
+					if x & y != z:
+						return False
+				return True
+	else:
+		end = offset + len(magic)
+		if mask is None:
+			def _matcher(data):
+				return data[offset:end] == magic
+		else:
+			def _matcher(data):
+				for x, y, z in zip_bytes(data[offset:end],mask,magic):
+					if x & y != z:
+						return False
+				return True
+
+	_matcher.magic  = magic
+	_matcher.offset = offset
+	_matcher.mask   = mask
+	_matcher.size   = offset + len(magic)
+
+	return _matcher
+
+FILE_TYPES = {
+	# XNA Game Studio files
+	'.xnb': [
+		matcher(b'XNBw'),                    # target: Windows
+		matcher(b'XNBm'),                    # target: Windows Phone
+		matcher(b'XNBx')                     # target: Xbox 360
+	],
+
+	# text files
+	'.xml': [matcher(b'<?xml ')],            # eXtensible Markup Language
+
+	# audio files
+	'.ogg':  [matcher(b'OggS')],             # Ogg (Vorbis?) file
+	'.flac': [matcher(b'fLaC')],             # Free Lossless Audio Codec
+	'.mp3': [                                # MPEG Layer 3
+		matcher(b'ID3'),
+		matcher(b'\xFF\xFB')
+	],
+	'.wav': [                                # RIFF WAVE file
+		matcher(b'RIFF\0\0\0\0WAVE', mask=b'\xFF\xFF\xFF\xFF\x00\x00\x00\x00\xFF\xFF\xFF\xFF')
+	],
+
+	# video files
+	'.mp4': [matcher(b'ftyp', offset=4)],    # MPEG-4 container
+	'.asf': [                                # ASF, WMA, WMV, etc.
+		matcher(b'\x30\x26\xB2\x75\x8E\x66\xCF\x11\xA6\xD9\x00\xAA\x00\x62\xCE\x6C')
+	],
+
+	# image files
+	'.png': [matcher(b'\x89PNG\r\n\x1A\n')], # Portable Network Graphic
+	'.gif': [                                # Graphics Interchange Format
+		matcher(b'GIF87a'), 
+		matcher(b'GIF89a')
+	],
+	'.jpg': [matcher(b'\xFF\xD8\xFF')],      # Joint Photographic Experts Group image
+	'.bmp': [matcher(b'BM')]                 # Windows Bitmap
+}
+
+MAX_MAGIC_SIZE = max(max(m.size for m in ft) for ft in FILE_TYPES.values())
+
 # for Python < 3.3 and Windows
 def highlevel_sendfile(outfile,infile,offset,size):
 	infile.seek(offset,0)
@@ -86,9 +163,9 @@ def pack(stream,dirname,remove_ext=True,callback=lambda name: None):
 			files.append(os.path.join(dirpath,filename))
 	_pack_files(stream,files,remove_ext,callback)
 
-def unpack(stream,outdir=".",ext="",callback=lambda name: None):
+def unpack(stream,outdir=".",ext_func=lambda stream,offset,size:'',callback=lambda name: None):
 	for name, offset, size in read_index(stream):
-		unpack_file(stream,name,offset,size,outdir,ext,callback)
+		unpack_file(stream,name,offset,size,outdir,ext_func,callback)
 
 def shall_unpack(paths,name):
 	path = name.split(os.path.sep)
@@ -98,16 +175,17 @@ def shall_unpack(paths,name):
 			return True
 	return False
 
-def unpack_files(stream,files,outdir=".",ext="",callback=lambda name: None):
+def unpack_files(stream,files,outdir=".",ext_func=lambda stream,offset,size:'',callback=lambda name: None):
 	for name, offset, size in read_index(stream):
 		if shall_unpack(files,name):
-			unpack_file(stream,name,offset,size,outdir,ext,callback)
+			unpack_file(stream,name,offset,size,outdir,ext_func,callback)
 
-def unpack_file(stream,name,offset,size,outdir=".",ext="",callback=lambda name: None):
+def unpack_file(stream,name,offset,size,outdir=".",ext_func=lambda stream,offset,size:'',callback=lambda name: None):
 	prefix, name = os.path.split(name)
 	prefix = os.path.join(outdir,prefix)
 	if not os.path.exists(prefix):
 		os.makedirs(prefix)
+	ext = ext_func(stream,offset,size)
 	name = os.path.join(prefix,name)+ext
 	callback(name)
 	with open(name,"wb") as fp:
@@ -191,7 +269,7 @@ def human_size(size):
 	
 	return size+unit
 
-def print_list(stream,details=False,human=False,delim="\n",ext="",sort_func=None,out=sys.stdout):
+def print_list(stream,details=False,human=False,delim="\n",ext=lambda stream,offset,size:'',sort_func=None,out=sys.stdout):
 	index = read_index(stream)
 
 	if sort_func:
@@ -205,17 +283,12 @@ def print_list(stream,details=False,human=False,delim="\n",ext="",sort_func=None
 
 		out.write("    Offset       Size Name%s" % delim)
 		for name, offset, size in index:
+			ext = ext_func(stream,offset,size)
 			out.write("%10u %10s %s%s%s" % (offset, size_to_str(size), name, ext, delim))
 	else:
 		for name, offset, size in index:
+			ext = ext_func(stream,offset,size)
 			out.write("%s%s%s" % (name, ext, delim))
-
-def add_common_args(parser):
-	parser.add_argument('archive', help='FEZ .pak archive')
-	parser.add_argument('-0','--print0',action='store_true',default=False,
-		help='seperate file names with nil bytes')
-	parser.add_argument('-v','--verbose',action='store_true',default=False,
-		help='print verbose output')
 
 SORT_ALIASES = {
 	"s": "size",
@@ -264,11 +337,12 @@ if HAS_LLFUSE:
 	import mmap
 
 	class Entry(object):
-		__slots__ = 'inode','_parent','__weakref__'
+		__slots__ = 'inode','_parent','stat','__weakref__'
 
 		def __init__(self,inode,parent=None):
 			self.inode  = inode
 			self.parent = parent
+			self.stat   = None
 
 		@property
 		def parent(self):
@@ -310,8 +384,8 @@ if HAS_LLFUSE:
 	class Operations(llfuse.Operations):
 		__slots__ = 'archive','root','inodes','arch_st','data'
 
-		def __init__(self, archive, ext=""):
-			super(Operations, self).__init__()
+		def __init__(self, archive, ext_func=lambda data,offset,size:''):
+			llfuse.Operations.__init__(self)
 			self.archive = archive
 			self.arch_st = os.fstat(archive.fileno())
 			self.root    = Dir(1)
@@ -323,8 +397,8 @@ if HAS_LLFUSE:
 			for filename, offset, size in read_index(archive):
 				path = filename.split(os.path.sep)
 				path, name = path[:-1], path[-1]
-				name += ext
-				name = name.encode(encoding)
+				ext = ext_func(archive, offset, size)
+				enc_name = (name+ext).encode(encoding)
 
 				parent = self.root
 				for i, comp in enumerate(path):
@@ -339,15 +413,23 @@ if HAS_LLFUSE:
 						raise ValueError("name conflict in archive: %r is not a directory" % os.path.join(*path[:i+1]))
 
 					parent = entry
-				
-				if name in parent.children:
-					raise ValueError("name conflict in archive: %r already exists" % filename)
 
-				parent.children[name] = self.inodes[inode] = File(inode, offset, size, parent)
+				i = 0
+				while enc_name in parent.children:
+					sys.stderr.write("Warning: doubled name in archive: %s%s\n" % (filename, ext))
+					i += 1
+					enc_name = ("%s~%d%s" % (name, i, ext)).encode(encoding)
+
+				parent.children[enc_name] = self.inodes[inode] = File(inode, offset, size, parent)
 				inode += 1
 
 			archive.seek(0, 0)
 			self.data = mmap.mmap(archive.fileno(), 0, access=mmap.ACCESS_READ)
+
+			# cache entry attributes
+			for inode in self.inodes:
+				entry = self.inodes[inode]
+				entry.stat = self._getattr(entry)
 
 		def destroy(self):
 			self.data.close()
@@ -367,7 +449,7 @@ if HAS_LLFUSE:
 			except KeyError:
 				raise llfuse.FUSEError(errno.ENOENT)
 			else:
-				return self._getattr(entry)
+				return entry.stat
 
 		def _getattr(self, entry):
 			attrs = llfuse.EntryAttributes()
@@ -412,7 +494,7 @@ if HAS_LLFUSE:
 			except KeyError:
 				raise llfuse.FUSEError(errno.ENOENT)
 			else:
-				return self._getattr(entry)
+				return entry.stat
 
 		def access(self, inode, mode, ctx):
 			try:
@@ -446,7 +528,7 @@ if HAS_LLFUSE:
 				names = list(entry.children)[offset:] if offset > 0 else entry.children
 				for name in names:
 					child = entry.children[name]
-					yield name, self._getattr(child), child.inode
+					yield name, child.stat, child.inode
 
 		def releasedir(self, fh):
 			pass
@@ -494,15 +576,12 @@ if HAS_LLFUSE:
 			j = i + min(entry.size - offset, length)
 			return self.data[i:j]
 
-#			self.archive.seek(entry.offset + offset, 0)
-#			return self.archive.read(min(entry.size - offset, length))
-			
 		def release(self, fh):
 			pass
 
-	def mount(archive,mountpt,ext="",debug=False):
+	def mount(archive,mountpt,ext_func=lambda data,offset,size:'',debug=False):
 		with open(archive,"rb") as fp:
-			ops = Operations(fp,ext)
+			ops = Operations(fp,ext_func)
 			args = ['fsname=fezpak']
 			if debug:
 				args.append('debug')
@@ -549,7 +628,7 @@ def main(argv):
 
 	parser = argparse.ArgumentParser(description='pack, unpack and list FEZ .pak archives')
 	parser.register('action', 'parsers', AliasedSubParsersAction)
-	parser.set_defaults(print0=False,verbose=False)
+	parser.set_defaults(print0=False,verbose=False,extension='',guess_extension=False)
 
 	subparsers = parser.add_subparsers(metavar='command')
 
@@ -562,8 +641,7 @@ def main(argv):
 
 	unpack_parser = subparsers.add_parser('unpack',aliases=('x',),help='unpack archive')
 	unpack_parser.set_defaults(command='unpack')
-	unpack_parser.add_argument('-x','--extension',type=str,default='',metavar="EXT",
-		help='add extension to names of unpacked files')
+	add_ext_arg(unpack_parser)
 	unpack_parser.add_argument('-C','--dir',type=str,default='.',
 		help='directory to write unpacked files')
 	add_common_args(unpack_parser)
@@ -577,14 +655,12 @@ def main(argv):
 		help='print file offsets and sizes')
 	list_parser.add_argument('-s','--sort',dest='sort_func',type=sort_func,default=None,
 		help='sort file list')
-	list_parser.add_argument('-x','--extension',type=str,default='',metavar="EXT",
-		help='add extension to file names')
+	add_ext_arg(list_parser)
 	add_common_args(list_parser)
 
 	mount_parser = subparsers.add_parser('mount',aliases=('m',),help='fuse mount archive')
 	mount_parser.set_defaults(command='mount')
-	mount_parser.add_argument('-x','--extension',type=str,default='',metavar="EXT",
-		help='add extension to names of files')
+	add_ext_arg(mount_parser)
 	mount_parser.add_argument('-d','--debug',action='store_true',default=False,
 		help='print debug output')
 	mount_parser.add_argument('archive', help='FEZ .pak archive')
@@ -599,16 +675,22 @@ def main(argv):
 	else:
 		callback = lambda name: None
 
+	if args.guess_extension:
+		ext_func = ext_from_file
+	else:
+		ext = args.extension
+		ext_func = lambda stream, offset, size: ext
+
 	if args.command == 'list':
 		with open(args.archive,"rb") as stream:
-			print_list(stream,args.details,args.human,delim,args.extension,args.sort_func)
+			print_list(stream,args.details,args.human,delim,ext_func,args.sort_func)
 	
 	elif args.command == 'unpack':
 		with open(args.archive,"rb") as stream:
 			if args.files:
-				unpack_files(stream,set(name.strip(os.path.sep) for name in args.files),args.dir,args.extension,callback)
+				unpack_files(stream,set(name.strip(os.path.sep) for name in args.files),args.dir,ext_func,callback)
 			else:
-				unpack(stream,args.dir,args.extension,callback)
+				unpack(stream,args.dir,ext_func,callback)
 	
 	elif args.command == 'pack':
 		with open(args.archive,"wb") as stream:
@@ -618,10 +700,40 @@ def main(argv):
 		if not HAS_LLFUSE:
 			raise ValueError('the llfuse python module is needed for this feature')
 
-		mount(args.archive,args.mountpt,args.extension,args.debug)
+		mount(args.archive,args.mountpt,ext_func,args.debug)
 
 	else:
 		raise ValueError('unknown command: %s' % args.command)
+
+def ext_from_data(data):
+	for ext in FILE_TYPES:
+		for matches in FILE_TYPES[ext]:
+			if matches(data):
+				return ext
+	return '.bin'
+
+def ext_from_file(stream,offset,size):
+	stream.seek(offset, 0)
+	data = stream.read(min(MAX_MAGIC_SIZE,size))
+	return ext_from_data(data)
+
+def ext_from_mmap(mem,offset,size):
+	data = mem[offset:offset+min(MAX_MAGIC_SIZE,size)]
+	return ext_from_data(data)
+
+def add_common_args(parser):
+	parser.add_argument('archive', help='FEZ .pak archive')
+	parser.add_argument('-0','--print0',action='store_true',default=False,
+		help='seperate file names with nil bytes')
+	parser.add_argument('-v','--verbose',action='store_true',default=False,
+		help='print verbose output')
+
+def add_ext_arg(parser):
+	group = parser.add_mutually_exclusive_group()
+	group.add_argument('-x','--extension',type=str,default='',metavar="EXT",
+		help='add extension to file names')
+	group.add_argument('--guess-extension',action='store_true',default=False,
+		help='auto-detect file name extension')
 
 if __name__ == '__main__':
 	try:
