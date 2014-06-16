@@ -73,45 +73,45 @@ def matcher(magic,offset=0,mask=None):
 
 	return _matcher
 
-FILE_TYPES = {
+FILE_TYPES = [
 	# XNA Game Studio files
-	'.xnb': [
-		matcher(b'XNBw'),                    # target: Windows
-		matcher(b'XNBm'),                    # target: Windows Phone
-		matcher(b'XNBx')                     # target: Xbox 360
-	],
-
-	# text files
-	'.xml': [matcher(b'<?xml ')],            # eXtensible Markup Language
+	('.xnb', [
+		matcher(b'XNBw'),                      # target: Windows
+		matcher(b'XNBm'),                      # target: Windows Phone
+		matcher(b'XNBx')                       # target: Xbox 360
+	]),
 
 	# audio files
-	'.ogg':  [matcher(b'OggS')],             # Ogg (Vorbis?) file
-	'.flac': [matcher(b'fLaC')],             # Free Lossless Audio Codec
-	'.mp3': [                                # MPEG Layer 3
+	('.ogg',  [matcher(b'OggS')]),             # Ogg (Vorbis?)
+	('.flac', [matcher(b'fLaC')]),             # Free Lossless Audio Codec
+	('.mp3', [                                 # MPEG Layer 3
 		matcher(b'ID3'),
 		matcher(b'\xFF\xFB')
-	],
-	'.wav': [                                # RIFF WAVE file
+	]),
+	('.wav', [                                 # RIFF WAVE
 		matcher(b'RIFF\0\0\0\0WAVE', mask=b'\xFF\xFF\xFF\xFF\x00\x00\x00\x00\xFF\xFF\xFF\xFF')
-	],
+	]),
 
 	# video files
-	'.mp4': [matcher(b'ftyp', offset=4)],    # MPEG-4 container
-	'.asf': [                                # ASF, WMA, WMV, etc.
+	('.mp4', [matcher(b'ftyp', offset=4)]),    # MPEG-4 container
+	('.asf', [                                 # ASF, WMA, WMV, etc.
 		matcher(b'\x30\x26\xB2\x75\x8E\x66\xCF\x11\xA6\xD9\x00\xAA\x00\x62\xCE\x6C')
-	],
+	]),
 
 	# image files
-	'.png': [matcher(b'\x89PNG\r\n\x1A\n')], # Portable Network Graphic
-	'.gif': [                                # Graphics Interchange Format
+	('.png', [matcher(b'\x89PNG\r\n\x1A\n')]), # Portable Network Graphic
+	('.jpg', [matcher(b'\xFF\xD8\xFF')]),      # Joint Photographic Experts Group
+	('.gif', [                                 # Graphics Interchange Format
 		matcher(b'GIF87a'), 
 		matcher(b'GIF89a')
-	],
-	'.jpg': [matcher(b'\xFF\xD8\xFF')],      # Joint Photographic Experts Group image
-	'.bmp': [matcher(b'BM')]                 # Windows Bitmap
-}
+	]),
+	('.bmp', [matcher(b'BM')]),                # Windows Bitmap
 
-MAX_MAGIC_SIZE = max(max(m.size for m in ft) for ft in FILE_TYPES.values())
+	# text files
+	('.xml', [matcher(b'<?xml ')])             # eXtensible Markup Language
+]
+
+MAX_MAGIC_SIZE = max(max(m.size for m in matchers) for ext, matchers in FILE_TYPES)
 
 # for Python < 3.3 and Windows
 def highlevel_sendfile(outfile,infile,offset,size):
@@ -726,8 +726,8 @@ def main(argv):
 		raise ValueError('unknown command: %s' % args.command)
 
 def ext_from_data(data):
-	for ext in FILE_TYPES:
-		for matches in FILE_TYPES[ext]:
+	for ext, matchers in FILE_TYPES:
+		for matches in matchers:
 			if matches(data):
 				return ext
 	return '.bin'
