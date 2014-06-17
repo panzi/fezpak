@@ -599,12 +599,63 @@ if HAS_LLFUSE:
 		def release(self, fh):
 			pass
 
-	def mount(archive,mountpt,ext_func=lambda data,offset,size:'',debug=False):
+	# based on http://code.activestate.com/recipes/66012/
+	def deamonize(stdout='/dev/null', stderr=None, stdin='/dev/null'):
+		# Do first fork.
+		try:
+			pid = os.fork()
+			if pid > 0:
+				sys.exit(0) # Exit first parent.
+		except OSError as e:
+			sys.stderr.write("fork #1 failed: (%d) %s\n" % (e.errno, e.strerror))
+			sys.exit(1)
+
+		# Decouple from parent environment.
+		os.chdir("/")
+		os.umask(0)
+		os.setsid()
+
+		# Do second fork.
+		try:
+			pid = os.fork()
+			if pid > 0:
+				sys.exit(0) # Exit second parent.
+		except OSError as e:
+			sys.stderr.write("fork #2 failed: (%d) %s\n" % (e.errno, e.strerror))
+			sys.exit(1)
+
+		# Open file descriptors
+		if not stderr:
+			stderr = stdout
+
+		si = open(stdin, 'r')
+		so = open(stdout, 'a+')
+		se = open(stderr, 'a+')
+
+		# Redirect standard file descriptors.
+		sys.stdout.flush()
+		sys.stderr.flush()
+
+		os.close(sys.stdin.fileno())
+		os.close(sys.stdout.fileno())
+		os.close(sys.stderr.fileno())
+
+		os.dup2(si.fileno(), sys.stdin.fileno())
+		os.dup2(so.fileno(), sys.stdout.fileno())
+		os.dup2(se.fileno(), sys.stderr.fileno())
+
+	def mount(archive,mountpt,ext_func=lambda data,offset,size:'',foreground=False,debug=False):
 		with open(archive,"rb") as fp:
 			ops = Operations(fp,ext_func)
 			args = ['fsname=fezpak', 'subtype=fezpak', 'ro']
+
 			if debug:
+				foreground = True
 				args.append('debug')
+
+			if not foreground:
+				deamonize()
+
 			llfuse.init(ops, mountpt, args)
 			try:
 				llfuse.main(single=False)
@@ -682,7 +733,9 @@ def main(argv):
 	mount_parser.set_defaults(command='mount')
 	add_ext_arg(mount_parser)
 	mount_parser.add_argument('-d','--debug',action='store_true',default=False,
-		help='print debug output')
+		help='print debug output (implies -f)')
+	mount_parser.add_argument('-f','--foreground',action='store_true',default=False,
+		help='foreground operation')
 	mount_parser.add_argument('archive', help='FEZ .pak archive')
 	mount_parser.add_argument('mountpt', help='mount point')
 
@@ -720,7 +773,7 @@ def main(argv):
 		if not HAS_LLFUSE:
 			raise ValueError('the llfuse python module is needed for this feature')
 
-		mount(args.archive,args.mountpt,ext_func,args.debug)
+		mount(args.archive,args.mountpt,ext_func,args.foreground,args.debug)
 
 	else:
 		raise ValueError('unknown command: %s' % args.command)
