@@ -408,7 +408,7 @@ if HAS_LLFUSE:
 			llfuse.Operations.__init__(self)
 			self.archive = archive
 			self.arch_st = os.fstat(archive.fileno())
-			self.root    = Dir(1)
+			self.root    = Dir(llfuse.ROOT_INODE)
 			self.inodes  = {self.root.inode: self.root}
 			self.root.parent = self.root
 
@@ -602,7 +602,7 @@ if HAS_LLFUSE:
 	def mount(archive,mountpt,ext_func=lambda data,offset,size:'',debug=False):
 		with open(archive,"rb") as fp:
 			ops = Operations(fp,ext_func)
-			args = ['fsname=fezpak']
+			args = ['fsname=fezpak', 'subtype=fezpak', 'ro']
 			if debug:
 				args.append('debug')
 			llfuse.init(ops, mountpt, args)
