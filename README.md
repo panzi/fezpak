@@ -15,6 +15,8 @@ Basic usage:
 The `mount` command depends on the [llfuse](https://code.google.com/p/python-llfuse/)
 Python package. If it's not available the rest is still working.
 
+This script is compatible with Python 2.7 and 3 (tested with 2.7.5 and 3.3.2).
+
 File Format
 -----------
 
