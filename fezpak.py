@@ -290,7 +290,7 @@ def human_size(size):
 	
 	return size+unit
 
-def print_list(stream,details=False,human=False,delim="\n",ext=lambda stream,offset,size:'',sort_func=None,out=sys.stdout):
+def print_list(stream,details=False,human=False,delim="\n",ext_func=lambda stream,offset,size:'',sort_func=None,out=sys.stdout):
 	index = read_index(stream)
 
 	if sort_func:
