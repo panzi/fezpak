@@ -698,7 +698,7 @@ def main(argv):
 
 			return parser
 
-	parser = argparse.ArgumentParser(description='pack, unpack and list FEZ .pak archives')
+	parser = argparse.ArgumentParser(description='pack, unpack, list and mount FEZ .pak archives')
 	parser.register('action', 'parsers', AliasedSubParsersAction)
 	parser.set_defaults(print0=False,verbose=False,extension='',guess_extension=False)
 
