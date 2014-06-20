@@ -302,10 +302,15 @@ def print_list(stream,details=False,human=False,delim="\n",ext_func=lambda strea
 		else:
 			size_to_str = str
 
+		count = 0
+		sum_size = 0
 		out.write("    Offset       Size Name%s" % delim)
 		for name, offset, size in index:
 			ext = ext_func(stream,offset,size)
 			out.write("%10u %10s %s%s%s" % (offset, size_to_str(size), name, ext, delim))
+			count += 1
+			sum_size += size
+		out.write("%d file(s) (%s) %s" % (count, size_to_str(sum_size), delim))
 	else:
 		for name, offset, size in index:
 			ext = ext_func(stream,offset,size)
