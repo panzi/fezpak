@@ -78,6 +78,12 @@ content, so I guess their existance is a mistake.
 	   N+1     4  uint32_t    file size (S)
        N+5     S  uint8_t[S]  file data
 
+Related Projects
+----------------
+
+ * [psypak](https://github.com/panzi/psypak)
+ * [unvpk](https://bitbucket.org/panzi/unvpk)
+
 BSD License
 -----------
 Copyright (c) 2014 Mathias Panzenböck
