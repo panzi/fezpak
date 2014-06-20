@@ -81,8 +81,8 @@ content, so I guess their existance is a mistake.
 Related Projects
 ----------------
 
- * [psypak](https://github.com/panzi/psypak)
- * [unvpk](https://bitbucket.org/panzi/unvpk)
+ * [psypak](https://github.com/panzi/psypak): unpack, list and mount Psychonauts .pkg archives
+ * [unvpk](https://bitbucket.org/panzi/unvpk): extract, list, check and mount Valve .vpk archives
 
 BSD License
 -----------
