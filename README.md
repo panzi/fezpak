@@ -82,6 +82,7 @@ Related Projects
 ----------------
 
  * [psypak](https://github.com/panzi/psypak): unpack, list and mount Psychonauts .pkg archives
+ * [bgebf](https://github.com/panzi/bgebf): pack, unpack, list and mount Beyond Good and Evil .bf archives
  * [unvpk](https://bitbucket.org/panzi/unvpk): extract, list, check and mount Valve .vpk archives
 
 BSD License
