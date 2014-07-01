@@ -651,6 +651,8 @@ if HAS_LLFUSE:
 		os.dup2(se.fileno(), sys.stderr.fileno())
 
 	def mount(archive,mountpt,ext_func=lambda data,offset,size:'',foreground=False,debug=False):
+		archive = os.path.abspath(archive)
+		mountpt = os.path.abspath(mountpt)
 		with open(archive,"rb") as fp:
 			ops = Operations(fp,ext_func)
 			args = ['fsname=fezpak', 'subtype=fezpak', 'ro']
