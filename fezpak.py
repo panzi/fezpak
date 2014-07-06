@@ -732,8 +732,9 @@ def main(argv):
 		help='print human readable file sizes')
 	list_parser.add_argument('-d','--details',action='store_true',default=False,
 		help='print file offsets and sizes')
-	list_parser.add_argument('-s','--sort',dest='sort_func',type=sort_func,default=None,
-		help='sort file list')
+	list_parser.add_argument('-s','--sort',dest='sort_func',metavar='KEYS',type=sort_func,default=None,
+		help='sort file list. Comma seperated list of sort keys. Keys are "size", "offset", and "name". '
+		     'Prepend "-" to a key name to sort in descending order.')
 	add_ext_arg(list_parser)
 	add_common_args(list_parser)
 
