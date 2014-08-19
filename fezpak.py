@@ -325,6 +325,11 @@ SORT_ALIASES = {
 	"N": "-name"
 }
 
+# for Python 3
+if not hasattr(__builtins__,'cmp'):
+	def cmp(a, b):
+		return (a > b) - (a < b)
+
 CMP_FUNCS = {
 	"size":  lambda lhs, rhs: cmp(lhs[2], rhs[2]),
 	"-size": lambda lhs, rhs: cmp(rhs[2], lhs[2]),
@@ -822,3 +827,4 @@ if __name__ == '__main__':
 		main(sys.argv[1:])
 	except Exception as exc:
 		sys.stderr.write("%s\n" % exc)
+		sys.exit(1)
