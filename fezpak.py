@@ -34,9 +34,6 @@ except ImportError:
 else:
 	HAS_LLFUSE = True
 
-__all__ = 'read_index', 'pack', 'unpack', 'unpack_files', 'pack_buffers', 'pack_files', \
-          'write_entry_header', 'print_list', 'mount'
-
 if sys.version_info.major == 2:
 	from itertools import izip
 	def zip_bytes(*seqs):
