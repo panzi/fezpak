@@ -68,7 +68,7 @@ content, so I guess their existance is a mistake.
 
 	Offset  Size  Type        Description
 	     0     4  uint32_t    number of entries (N)
-		 1   N/A  Entry[N]    entries
+	     1   N/A  Entry[N]    entries
 
 ### Entry
 
